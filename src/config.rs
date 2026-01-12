@@ -23,6 +23,21 @@ pub struct Settings {
     // Stats
     pub stats_log_sec: u64,
     pub stats_jsonl_path: Option<String>,
+
+    // Data source configuration
+    #[serde(default = "default_data_source")]
+    pub data_source: String,
+    pub opinion_api_key: Option<String>,
+    #[serde(default = "default_opinion_concurrency")]
+    pub opinion_concurrency: usize,
+}
+
+fn default_data_source() -> String {
+    "polymarket".to_string()
+}
+
+fn default_opinion_concurrency() -> usize {
+    10
 }
 
 impl Settings {

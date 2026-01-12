@@ -17,7 +17,7 @@ dotenvy = "0.15"
 config = "0.14"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = "1"
 rust_decimal_macros = "1"
@@ -27,3 +27,4 @@ uuid = { version = "1", features = ["v4"] }
 polymarket-client-sdk = { version = "0.3.1", optional = true, features = ["tracing"] }
 alloy = { version = "1.2.1", optional = true, features = ["signers"] }
 futures = "0.3"
+async-trait = "0.1"

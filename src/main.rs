@@ -3,6 +3,8 @@ mod types;
 mod stats;
 
 mod pm;
+mod opinion;
+mod source;
 mod strategy;
 
 use anyhow::Result;
@@ -10,8 +12,9 @@ use rust_decimal::Decimal;
 use tracing_subscriber::EnvFilter;
 
 use crate::config::Settings;
-use crate::pm::market_data::{MarketData, MarketDef};
 use crate::pm::execution_observer::ExecutionObserver;
+use crate::pm::market_data::MarketDef;
+use crate::source::MarketDataSource;
 use crate::stats::Stats;
 use crate::strategy::sum_arb::SumArbStrategy;
 use crate::strategy::Strategy;
@@ -44,7 +47,32 @@ async fn main() -> Result<()> {
         .init();
 
     let s = Settings::from_env()?;
-    let md = MarketData::new(s.clob_host.clone(), s.books_chunk_size, s.books_concurrency);
+
+    tracing::info!(
+        data_source = %s.data_source,
+        has_opinion_api_key = s.opinion_api_key.is_some(),
+        opinion_api_key_len = s.opinion_api_key.as_ref().map(|k| k.len()).unwrap_or(0),
+        "configuration loaded"
+    );
+
+    // Runtime data source selection based on DATA_SOURCE config
+    let source: Box<dyn MarketDataSource> = match s.data_source.as_str() {
+        "opinion" => {
+            let api_key = s
+                .opinion_api_key
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("OPINION_API_KEY required when DATA_SOURCE=opinion"))?;
+            Box::new(crate::opinion::OpinionMarketData::new(
+                api_key.clone(),
+                s.opinion_concurrency,
+            ))
+        }
+        "polymarket" | _ => Box::new(crate::source::PolymarketSource::new(
+            s.clob_host.clone(),
+            s.books_chunk_size,
+            s.books_concurrency,
+        )),
+    };
 
     let stats = Stats::new(now_ms());
 
@@ -72,13 +100,13 @@ async fn main() -> Result<()> {
 
         if refresh_due {
             tracing::info!(max_markets=s.max_markets, "refreshing open markets");
-            markets = md.fetch_open_markets(s.max_markets).await?;
+            markets = source.fetch_open_markets(s.max_markets).await?;
             last_refresh = std::time::Instant::now();
             tracing::info!(count=markets.len(), "open markets loaded");
             stats.set_markets_loaded(markets.len() as u64);
         }
 
-        let snap = md.snapshot_for_markets(&markets).await?;
+        let snap = source.snapshot_for_markets(&markets).await?;
         stats.inc_heartbeat();
         stats.set_markets_in_snapshot(snap.markets.len() as u64);
 

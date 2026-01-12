@@ -102,3 +102,5 @@ All config via environment variables loaded in [src/config.rs](../src/config.rs)
 - Error context via `anyhow::Context` trait: `.context("descriptive error")?`
 - Logging via `tracing` crate with structured fields: `tracing::info!(field=%value, "message")`
 - Timestamps as `i64` milliseconds (UNIX epoch)
+
+**IMPORTANT** DO NOT read secrets from .env or config files. Use environment variables only for sensitive data like private keys.
