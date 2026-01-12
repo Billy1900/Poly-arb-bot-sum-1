@@ -31,7 +31,10 @@ impl Strategy for SumArbStrategy {
         let warn_edge = Self::bps(self.warn_edge_bps);
 
         for m in &snap.markets {
-            if m.outcomes.is_empty() { continue; }
+            // Sum-arb only makes sense when we have >=2 outcomes. If a market has a single
+            // outcome token (bad mapping / partial data), sum_ask will be artificially low
+            // and create false positives.
+            if m.outcomes.len() < 2 { continue; }
 
             // Per-leg filters
             let mut ok = true;

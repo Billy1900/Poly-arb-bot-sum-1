@@ -69,6 +69,10 @@ pub struct MarketItem {
 pub struct ChildMarket {
     #[serde(rename = "marketId")]
     pub market_id: i64,
+    #[serde(rename = "marketTitle", default, deserialize_with = "string_or_empty")]
+    pub market_title: String,
+    #[serde(default)]
+    pub status: i32,
     #[serde(rename = "yesTokenId", default, deserialize_with = "string_or_empty")]
     pub yes_token_id: String,
     #[serde(rename = "noTokenId", default, deserialize_with = "string_or_empty")]

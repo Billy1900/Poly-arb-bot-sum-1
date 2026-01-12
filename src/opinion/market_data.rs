@@ -105,15 +105,118 @@ impl OpinionMarketData {
                 ids
             }
             1 => {
-                // Categorical market: use YES tokens from childMarkets
+                // Categorical market: use YES tokens from activated childMarkets.
+                // Note: many "ladder" markets are represented as a set of binary submarkets
+                // (often dates / thresholds). Those are filtered out in fetch_open_markets.
                 item.child_markets
                     .iter()
+                    .filter(|cm| cm.status == 2)
                     .map(|cm| cm.yes_token_id.clone())
                     .filter(|tid| !tid.is_empty())
                     .collect()
             }
             _ => vec![],
         }
+    }
+
+    fn looks_like_ladder_market(parent_title: &str, children: &[ChildMarket]) -> bool {
+        if children.len() < 2 {
+            return false;
+        }
+
+        let parent = parent_title.to_ascii_lowercase();
+        let parent_ladder_hint = parent.contains(" by ")
+            || parent.contains(" before ")
+            || parent.contains(" hit ")
+            || parent.contains(" price ")
+            || parent.contains(" above ")
+            || parent.contains(" below ")
+            || parent.contains(" over ")
+            || parent.contains(" under ")
+            || parent.contains(" at least ")
+            || parent.contains(" at most ")
+            || parent.contains(" or above ")
+            || parent.contains(" or below ");
+
+        // If the child option labels look like dates or monotonic numeric thresholds,
+        // it's very likely a ladder (nested YES events), which breaks sum-arb semantics.
+        let mut numeric_markers: Vec<i64> = Vec::new();
+        let mut has_date_like = false;
+        let mut has_threshold_symbols = false;
+
+        for cm in children {
+            let t = cm.market_title.trim();
+            if t.is_empty() {
+                continue;
+            }
+            let tl = t.to_ascii_lowercase();
+
+            // Very lightweight date-ish detection.
+            if tl.contains("jan")
+                || tl.contains("feb")
+                || tl.contains("mar")
+                || tl.contains("apr")
+                || tl.contains("may")
+                || tl.contains("jun")
+                || tl.contains("jul")
+                || tl.contains("aug")
+                || tl.contains("sep")
+                || tl.contains("oct")
+                || tl.contains("nov")
+                || tl.contains("dec")
+                || tl.contains("202")
+            {
+                has_date_like = true;
+            }
+
+            if tl.contains('$')
+                || tl.contains('%')
+                || tl.contains('>')
+                || tl.contains('<')
+                || tl.contains('↑')
+                || tl.contains('↓')
+                || tl.contains("bps")
+                || tl.contains("million")
+                || tl.contains("billion")
+                || tl.contains('m')
+                || tl.contains('k')
+            {
+                has_threshold_symbols = true;
+            }
+
+            // Extract the first integer-like run; enough to detect monotonic ladders like 20/40/60.
+            let mut buf = String::new();
+            for ch in tl.chars() {
+                if ch.is_ascii_digit() {
+                    buf.push(ch);
+                } else if !buf.is_empty() {
+                    break;
+                }
+            }
+            if !buf.is_empty() {
+                if let Ok(v) = buf.parse::<i64>() {
+                    numeric_markers.push(v);
+                }
+            }
+        }
+
+        let monotonic_numbers = if numeric_markers.len() >= 3 {
+            let mut inc = true;
+            let mut dec = true;
+            for w in numeric_markers.windows(2) {
+                if w[1] <= w[0] {
+                    inc = false;
+                }
+                if w[1] >= w[0] {
+                    dec = false;
+                }
+            }
+            inc || dec
+        } else {
+            false
+        };
+
+        parent_ladder_hint && (has_date_like || has_threshold_symbols || monotonic_numbers)
     }
 
     async fn fetch_orderbook(&self, token_id: &str) -> Option<OutcomeTop> {
@@ -186,8 +289,16 @@ impl MarketDataSource for OpinionMarketData {
             }
 
             for item in items {
+                // Opinion categorical markets are often represented as multiple binary submarkets.
+                // Some of those are ladder-style (nested YES events), which are not suitable for
+                // sum(outcome prices) arbitrage. Filter them out early.
+                if item.market_type == 1 && Self::looks_like_ladder_market(&item.market_title, &item.child_markets) {
+                    tracing::debug!(market_id=item.market_id, title=%item.market_title, children=item.child_markets.len(), "skipping ladder-like market");
+                    continue;
+                }
+
                 let token_ids = self.extract_token_ids(&item);
-                if !token_ids.is_empty() {
+                if token_ids.len() >= 2 {
                     out.push(MarketDef {
                         market_id: item.market_id.to_string(),
                         question: item.market_title.clone(),

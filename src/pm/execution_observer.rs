@@ -24,6 +24,7 @@ impl ExecutionObserver {
                     bundle_id=%i.bundle_id,
                     market_id=%i.market_id,
                     token_id=%i.token_id,
+                    side=?i.side,
                     price=%i.price,
                     size=%i.size,
                     reason=%i.reason,
